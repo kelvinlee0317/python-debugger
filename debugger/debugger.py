@@ -16,6 +16,7 @@ class Debugger():
         self.pid                = None;
         self.debugger_active    = False;
         
+        
     
     def load(self, path_to_exe):
         
@@ -47,8 +48,9 @@ class Debugger():
             print   "[*]  PID: %d" % process_info.dwProcessId
             
             # Obtain a handle to the open process
-            self.h_process = self.open_process(process_info.dwProcessId)
+            #self.h_process = self.open_process(process_info.dwProcessId)
             
+            self.debugger_active = True
             return process_info.dwProcessId
             
             
@@ -57,8 +59,8 @@ class Debugger():
             
     def open_process(self, pid):
         # HANDLE WINAPI OpenProcess( dwDesiredAccess, bInheritHandle, dwProcessId)
-        h_process = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False)
-        print pid
+        h_process = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
+        print "Opened pid: {}".format(pid)
         #if h_process == 0:
         #    print "[*] Error opening process: %s" % kernel32.GetLastError()   
         return h_process
@@ -66,18 +68,21 @@ class Debugger():
     def attach(self, pid):
         pid = DWORD(int(pid))
         self.h_process = self.open_process(pid)
-        print self.h_process
+        print "h_process: {}".format(self.h_process)
         
         
         # We attempt to attach to the process
         # if this fails we exit the call
         # BOOL WINAPI DebugActiveProcess(dwProcessId)
-        if kernel32.DebugActiveProcess(pid):
+        success = kernel32.DebugActiveProcess(pid)
+        if success:
                 self.debugger_active    = True
                 self.pid                = pid
                 
         else:
-            print "[*] Unable to attach to the process to debug. Are you trying to debug a 64-bit process with 32-bit Python?"
+            print "[*] Unable to attach to the process to debug.\n kernel32.DebugActiveProcess:: Return code {}.".format(success)\
+                       + " Error Code {}.\n".format(self.get_last_error()) \
+                       + " Are you trying to debug a 64-bit process with 32-bit Python?"
             
     def get_debug_event(self):
         
@@ -86,8 +91,13 @@ class Debugger():
         
         if kernel32.WaitForDebugEvent(byref(debug_event), INFINITE):
                 # TODO: Event handlers
-                raw_input("Press a key to continue...")
-                self.debugger_active = False
+                print "Debug event code: {}\nProcessID: {}\nThreadID: {}".format(debug_event.dwDebugEventCode,
+                                                                                  debug_event.dwProcessId,
+                                                                                  debug_event.dwThreadId)
+                                                                                   
+                input = raw_input("Detach? [y to detach] : ")
+                if input == "y":
+                    self.debugger_active = False
                 # BOOL WINAPI ContinueDebugEvent( dwProcessId, dwThreadId, dwContinueStatus)
                 kernel32.ContinueDebugEvent(debug_event.dwProcessId, debug_event.dwThreadId, continue_status)
                 
@@ -107,6 +117,10 @@ class Debugger():
         while self.debugger_active == True:
             self.get_debug_event()
             
+            
+    def get_last_error(self):
+        return kernel32.GetLastError()
+            
                 
                     
             
@@ -115,5 +129,12 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         path_to_exe = sys.argv[1]
         debugger = Debugger()
-        debugger.load(path_to_exe)
+        pid = debugger.load(path_to_exe)
+        
+        #debugger.attach(pid)
+        debugger.run()
+        
+        debugger.detach()
+        
+    
         
