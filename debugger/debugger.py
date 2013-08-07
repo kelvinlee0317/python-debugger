@@ -65,7 +65,47 @@ class Debugger():
         #    print "[*] Error opening process: %s" % kernel32.GetLastError()   
         return h_process
     
+    def enumerate_threads(self, pid):
+        """ Loop through all the threads given by the system, match those with our PID """
+        thread_entry = THREADENTRY32()
+        thread_list = []
+        # Call a general WINAPI system info function.
+        # WTF is with your weird function names, Microsoft?
+        # http://msdn.microsoft.com/en-us/library/windows/desktop/ms682489%28v=vs.85%29.aspx
+        snapshot= kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD,
+                                                    pid)
+        
+        if not snapshot:
+            sys.stderr.write("Could not access thread information with CreateToolhelp32Snapshot\n")
+            return False
+        
+        else:
+            success = kernel32.Thread32First(snapshot, byref(thread_entry))
+            while success:
+                if thread_entry.th32OwnerProcessID == pid:
+                    thread_list.append(thread_entry.th32ThreadID)
+                    success = kernel32.Thread32Next(snapshot, byref(thread_entry))
+                
+            kernel32.CloseHandle(snapshot)
+            return thread_list
+        
+    def get_thread_context(selfself, thread_id):
+        """ Get the thread context struct for a given thread id"""
+        context = CONTEXT()
+        context.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS
+        
+        # Obtain a handle to the thread
+        h_thread = self.open_thread(thread_id)
+        if kernel32.GetThreadContext(h_thread, byref(context)):
+            kernel32.CloseHandle(h_thread)
+            return context
+        else:
+            sys.stderr.write("Could not access thread_id {}\n".format(thread_id))
+            return False
+    
     def attach(self, pid):
+        """ Attach to an already running process by given pid """
+        
         pid = DWORD(int(pid))
         self.h_process = self.open_process(pid)
         print "h_process: {}".format(self.h_process)
@@ -85,6 +125,10 @@ class Debugger():
                        + " Are you trying to debug a 64-bit process with 32-bit Python?"
             
     def get_debug_event(self):
+        """ Loop, waiting for debugging events.
+        
+            TODO:  Add callback arg for action on given event type
+        """
         
         debug_event     = DEBUG_EVENT()
         continue_status = DBG_CONTINUE

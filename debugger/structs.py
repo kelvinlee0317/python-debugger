@@ -214,6 +214,11 @@ class CONTEXT(Structure):
 # we use this for enumerating all of the system threads
 
 class THREADENTRY32(Structure):
+    
+    def __init__(self):
+        Structure.__init__()
+        self.dwSize = sizeof(self)
+        
     _fields_ = [
         ("dwSize",             DWORD),
         ("cntUsage",           DWORD),
