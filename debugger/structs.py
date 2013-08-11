@@ -4,6 +4,7 @@ from ctypes import *
 BYTE      = c_ubyte
 WORD      = c_ushort
 DWORD     = c_ulong
+DWORD64   = c_longlong
 LPBYTE    = POINTER(c_ubyte)
 LPTSTR    = POINTER(c_char) 
 HANDLE    = c_void_p
@@ -48,9 +49,44 @@ TH32CS_INHERIT      = 0x80000000
 TH32CS_SNAPALL      = (TH32CS_SNAPHEAPLIST | TH32CS_SNAPPROCESS | TH32CS_SNAPTHREAD | TH32CS_SNAPMODULE)
 THREAD_ALL_ACCESS   = 0x001F03FF
 
+#
 # Context flags for GetThreadContext()
-CONTEXT_FULL                   = 0x00010007
-CONTEXT_DEBUG_REGISTERS        = 0x00010010
+#
+
+# Processor mode ( which CONTEXT struct to return )
+CONTEXT_x86                = 0x00010000
+CONTEXT_AMD_64             = 0x00100000
+
+
+# Which parts of the Context struct to show
+CONTEXT_CONTROL             = 0x1
+CONTEXT_INTEGER             = 0x2
+CONTEXT_SEGMENTS            = 0x4
+CONTEXT_FLOATING_POINT      = 0x8
+CONTEXT_DEBUG_REGISTERS     = 0x10
+
+CONTEXT_FULL_64             = (CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_FLOATING_POINT)
+CONTEXT_ALL_64              = (CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS | CONTEXT_FLOATING_POINT | \
+                                CONTEXT_DEBUG_REGISTERS)
+
+
+# x86/WOW64-specific
+CONTEXT_XSTATE_32           = 0x40
+CONTEXT_EXTENDED_REGISTERS  = 0x20 
+
+CONTEXT_FULL_32 = (CONTEXT_CONTROL | CONTEXT_INTEGER |\
+                   CONTEXT_SEGMENTS)
+
+CONTEXT_ALL_32  = (CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS | \
+                   CONTEXT_FLOATING_POINT | CONTEXT_DEBUG_REGISTERS | \
+                   CONTEXT_EXTENDED_REGISTERS)
+
+# AMD_64-specific  
+CONTEXT_XSTATE_64           = 0x20
+CONTEXT_EXCEPTION_ACTIVE    = 0x8000000
+CONTEXT_SERVICE_ACTIVE      = 0x10000000
+CONTEXT_EXCEPTION_REQUEST   = 0x40000000
+CONTEXT_EXCEPTION_REPORTING = 0x80000000
 
 # Memory permissions
 PAGE_EXECUTE_READWRITE         = 0x00000040
@@ -180,6 +216,8 @@ class FLOATING_SAVE_AREA(Structure):
 
 # The CONTEXT structure which holds all of the 
 # register values after a GetThreadContext() call
+# THIS IS THE 32-bit version of the struct. The 64-bit version is below
+# See winNT.h.
 class CONTEXT(Structure):
     _fields_ = [
     
@@ -208,7 +246,296 @@ class CONTEXT(Structure):
         ("Esp", DWORD),
         ("SegSs", DWORD),
         ("ExtendedRegisters", BYTE * 512),
-]
+	]
+    
+class M128A(Structure):
+    _fields_ = [
+        ("High", DWORD64),
+        ("Low", DWORD64)
+	]
+
+#     
+class XMM_SAVE_AREA32(Structure):
+    _fields_ = [
+        ("ControlWord", WORD),
+        ("StatusWord", WORD),
+        ("TagWord", BYTE),
+        ("Reserved1", BYTE),
+        ("ErrorOpcode", WORD),
+        ("ErrorOffset", DWORD),
+        ("ErrorSelector", WORD),
+        ("Reserved2", WORD),
+        ("DataOffset", DWORD),
+        ("DataSelector", WORD),
+        ("Reserved3", WORD),
+        ("MxCsr", DWORD),
+        ("MxCsr_Mask", DWORD),
+        ("FloatRegisters", M128A * 8)
+	]
+
+# Alternative 
+class XMM_SAVE_AREA_STRUCT(Structure):
+    _fields_ = [
+        ("Header", M128A * 2),
+        ("Legacy", M128A * 8),
+        ("Xmm0"  , M128A), 
+        ("Xmm1"  , M128A),  
+        ("Xmm2"  , M128A),  
+        ("Xmm3"  , M128A),  
+        ("Xmm4"  , M128A),  
+        ("Xmm5"  , M128A),  
+        ("Xmm6"  , M128A),  
+        ("Xmm7"  , M128A),  
+        ("Xmm8"  , M128A),  
+        ("Xmm9"  , M128A),   
+        ("Xmm10" , M128A), 
+        ("Xmm11" , M128A),
+        ("Xmm12" , M128A),
+        ("Xmm13" , M128A),
+        ("Xmm14" , M128A),
+        ("Xmm15" , M128A),   
+    ]
+    
+
+"""
+
+typedef XSAVE_FORMAT XMM_SAVE_AREA32, *PXMM_SAVE_AREA32;
+typedef unsigned __int64 ULONGLONG;
+typedef __int64 LONGLONG;
+typedef unsigned __int64 ULONG64, *PULONG64;
+typedef unsigned __int64 DWORD64, *PDWORD64;
+
+//
+// Format of data for (F)XSAVE/(F)XRSTOR instruction
+//
+
+typedef struct DECLSPEC_ALIGN(16) _XSAVE_FORMAT {
+    WORD   ControlWord;
+    WORD   StatusWord;
+    BYTE  TagWord;
+    BYTE  Reserved1;
+    WORD   ErrorOpcode;
+    DWORD ErrorOffset;
+    WORD   ErrorSelector;
+    WORD   Reserved2;
+    DWORD DataOffset;
+    WORD   DataSelector;
+    WORD   Reserved3;
+    DWORD MxCsr;
+    DWORD MxCsr_Mask;
+    M128A FloatRegisters[8];
+
+//
+// Define 128-bit 16-byte aligned xmm register type.
+//
+
+typedef struct DECLSPEC_ALIGN(16) _M128A {
+    ULONGLONG Low;
+    LONGLONG High;
+} M128A, *PM128A;
+"""
+
+# Union representing the two ways of representing floating-point register state
+class FLOAT_UNION(Union):
+    _fields_ = [
+        ("FltSave", XMM_SAVE_AREA32),
+        ("DUMMYSTRUCTNAME", XMM_SAVE_AREA_STRUCT)
+    ]
+
+
+class CONTEXT_AMD64(Structure):
+    _fields_ = [
+	# Convenience fields
+
+	("P1Home",  DWORD64),
+	("P2Home",  DWORD64),      
+    ("P3Home",  DWORD64),
+    ("P4Home",  DWORD64),
+    ("P5Home",  DWORD64), 
+    ("P6Home",  DWORD64),
+
+    # Control flags. These are set to indicate to GetThreadContext what should be filled
+    ("ContextFlags", DWORD),
+    ("MxCsr", DWORD),
+
+	# Segment registers and flags
+
+	("SegCs", WORD), 
+	("SegDs", WORD),
+	("SegEs", WORD),
+	("SegFs", WORD),
+	("SegGs", WORD),
+	("SegSs", WORD),
+	("EFlags", DWORD),
+
+	# Debug registers
+	("Dr0", DWORD64), 
+    ("Dr1", DWORD64),
+    ("Dr2", DWORD64),
+    ("Dr3", DWORD64),
+    ("Dr6", DWORD64),
+	("Dr7", DWORD64),
+
+	# Integer registers
+
+	("Rax", DWORD64), 
+    ("Rcx", DWORD64),
+    ("Rdx", DWORD64),
+    ("Rbx", DWORD64),
+    ("Rsp", DWORD64),
+    ("Rbp", DWORD64),
+    ("Rsi", DWORD64),
+    ("Rdi", DWORD64),
+    ("R8;", DWORD64),
+    ("R9;", DWORD64),
+    ("R10", DWORD64),
+    ("R11", DWORD64),
+    ("R12", DWORD64),
+    ("R13", DWORD64),
+    ("R14", DWORD64),
+	("R15", DWORD64),
+
+	# Instruction pointer
+	("Rip", DWORD64),
+
+	# Floating point state
+    ("DUMMYUNIONNAME", FLOAT_UNION),
+
+    
+    # Vector registers
+    ("VectorRegister", M128A * 27),
+    ("VectorControl", DWORD64),
+
+    # Special Debug Control registers
+
+    ("DebugControl"        , DWORD64),           
+    ("LastBranchToRip"     , DWORD64), 
+    ("LastBranchFromRip"   , DWORD64),
+    ("LastExceptionToRip"  , DWORD64),
+    ("LastExceptionFromRip", DWORD64),
+	]
+"""    
+typedef struct DECLSPEC_ALIGN(16) _CONTEXT {
+
+    //
+    // Register parameter home addresses.
+    //
+    // N.B. These fields are for convience - they could be used to extend the
+    //      context record in the future.
+    //
+
+    DWORD64 P1Home;
+    DWORD64 P2Home;
+    DWORD64 P3Home;
+    DWORD64 P4Home;
+    DWORD64 P5Home;
+    DWORD64 P6Home;
+
+    //
+    // Control flags.
+    //
+
+    DWORD ContextFlags;
+    DWORD MxCsr;
+
+    //
+    // Segment Registers and processor flags.
+    //
+
+    WORD   SegCs;
+    WORD   SegDs;
+    WORD   SegEs;
+    WORD   SegFs;
+    WORD   SegGs;
+    WORD   SegSs;
+    DWORD EFlags;
+
+    //
+    // Debug registers
+    //
+
+    DWORD64 Dr0;
+    DWORD64 Dr1;
+    DWORD64 Dr2;
+    DWORD64 Dr3;
+    DWORD64 Dr6;
+    DWORD64 Dr7;
+
+    //
+    // Integer registers.
+    //
+
+    DWORD64 Rax;
+    DWORD64 Rcx;
+    DWORD64 Rdx;
+    DWORD64 Rbx;
+    DWORD64 Rsp;
+    DWORD64 Rbp;
+    DWORD64 Rsi;
+    DWORD64 Rdi;
+    DWORD64 R8;
+    DWORD64 R9;
+    DWORD64 R10;
+    DWORD64 R11;
+    DWORD64 R12;
+    DWORD64 R13;
+    DWORD64 R14;
+    DWORD64 R15;
+
+    //
+    // Program counter.
+    //
+
+    DWORD64 Rip;
+
+    //
+    // Floating point state.
+    //
+
+    union {
+        XMM_SAVE_AREA32 FltSave;
+        struct {
+            M128A Header[2];
+            M128A Legacy[8];
+            M128A Xmm0;
+            M128A Xmm1;
+            M128A Xmm2;
+            M128A Xmm3;
+            M128A Xmm4;
+            M128A Xmm5;
+            M128A Xmm6;
+            M128A Xmm7;
+            M128A Xmm8;
+            M128A Xmm9;
+            M128A Xmm10;
+            M128A Xmm11;
+            M128A Xmm12;
+            M128A Xmm13;
+            M128A Xmm14;
+            M128A Xmm15;   
+        } DUMMYSTRUCTNAME;
+    } DUMMYUNIONNAME;
+
+    //
+    // Vector registers.
+    //
+
+    M128A VectorRegister[26];
+    DWORD64 VectorControl;
+
+    //
+    // Special debug control registers.
+    //
+
+    DWORD64 DebugControl;       
+    DWORD64 LastBranchToRip;
+    DWORD64 LastBranchFromRip;
+    DWORD64 LastExceptionToRip;
+    DWORD64 LastExceptionFromRip;
+} CONTEXT, *PCONTEXT;
+"""
+
+
 
 # THREADENTRY32 contains information about a thread
 # we use this for enumerating all of the system threads
@@ -216,7 +543,7 @@ class CONTEXT(Structure):
 class THREADENTRY32(Structure):
     
     def __init__(self):
-        Structure.__init__()
+        Structure.__init__(self)
         self.dwSize = sizeof(self)
         
     _fields_ = [

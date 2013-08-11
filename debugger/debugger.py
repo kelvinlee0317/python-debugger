@@ -51,6 +51,8 @@ class Debugger():
             #self.h_process = self.open_process(process_info.dwProcessId)
             
             self.debugger_active = True
+            self.pid = process_info.dwProcessId
+
             return process_info.dwProcessId
             
             
@@ -64,6 +66,17 @@ class Debugger():
         #if h_process == 0:
         #    print "[*] Error opening process: %s" % kernel32.GetLastError()   
         return h_process
+
+    def open_thread(self, thread_id):
+        """ Get a handle to the specified thread """
+        print "Getting a handle to ", thread_id
+        h_thread = kernel32.OpenThread(THREAD_ALL_ACCESS, None, thread_id)
+
+        if h_thread:
+            return h_thread
+        else:
+            sys.err.write("Could not obtain a thread handle\n")
+            return False
     
     def enumerate_threads(self, pid):
         """ Loop through all the threads given by the system, match those with our PID """
@@ -72,8 +85,12 @@ class Debugger():
         # Call a general WINAPI system info function.
         # WTF is with your weird function names, Microsoft?
         # http://msdn.microsoft.com/en-us/library/windows/desktop/ms682489%28v=vs.85%29.aspx
-        snapshot= kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD,
+        snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD,
                                                     pid)
+
+        print "Snapshot ", snapshot
+
+        print "Last error: ", self.get_last_error()
         
         if not snapshot:
             sys.stderr.write("Could not access thread information with CreateToolhelp32Snapshot\n")
@@ -82,17 +99,20 @@ class Debugger():
         else:
             success = kernel32.Thread32First(snapshot, byref(thread_entry))
             while success:
+
                 if thread_entry.th32OwnerProcessID == pid:
                     thread_list.append(thread_entry.th32ThreadID)
-                    success = kernel32.Thread32Next(snapshot, byref(thread_entry))
+                success = kernel32.Thread32Next(snapshot, byref(thread_entry))
                 
             kernel32.CloseHandle(snapshot)
+
+            print "Found {} threads".format(len(thread_list))
             return thread_list
         
-    def get_thread_context(selfself, thread_id):
+    def get_thread_context(self, thread_id):
         """ Get the thread context struct for a given thread id"""
-        context = CONTEXT()
-        context.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS
+        context = CONTEXT_AMD64()
+        context.ContextFlags = CONTEXT_AMD_64 | CONTEXT_FULL_64 | CONTEXT_DEBUG_REGISTERS | CONTEXT_SEGMENTS
         
         # Obtain a handle to the thread
         h_thread = self.open_thread(thread_id)
@@ -118,11 +138,14 @@ class Debugger():
         if success:
                 self.debugger_active    = True
                 self.pid                = pid
+                return pid
                 
         else:
             print "[*] Unable to attach to the process to debug.\n kernel32.DebugActiveProcess:: Return code {}.".format(success)\
                        + " Error Code {}.\n".format(self.get_last_error()) \
                        + " Are you trying to debug a 64-bit process with 32-bit Python?"
+
+            return None
             
     def get_debug_event(self):
         """ Loop, waiting for debugging events.
@@ -138,7 +161,7 @@ class Debugger():
                 print "Debug event code: {}\nProcessID: {}\nThreadID: {}".format(debug_event.dwDebugEventCode,
                                                                                   debug_event.dwProcessId,
                                                                                   debug_event.dwThreadId)
-                                                                                   
+
                 input = raw_input("Detach? [y to detach] : ")
                 if input == "y":
                     self.debugger_active = False
@@ -164,9 +187,16 @@ class Debugger():
             
     def get_last_error(self):
         return kernel32.GetLastError()
-            
-                
-                    
+
+
+    def dump_thread_contexts(self):        
+        threads = debugger.enumerate_threads(self.pid)
+
+        for thread in threads:
+            thread_ctx = debugger.get_thread_context(thread)
+
+            print "ThreadID: {}".format(thread)
+            print "Instruction pointer RIP: {:016X}".format(thread_ctx.Rip)
             
 
 if __name__ == '__main__':
@@ -174,11 +204,10 @@ if __name__ == '__main__':
         path_to_exe = sys.argv[1]
         debugger = Debugger()
         pid = debugger.load(path_to_exe)
-        
-        #debugger.attach(pid)
-        debugger.run()
+
+        debugger.dump_thread_contexts()
+
+        #debugger.run()
         
         debugger.detach()
-        
-    
         
