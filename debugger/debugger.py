@@ -161,11 +161,14 @@ class Debugger():
                 print "Debug event code: {}\nProcessID: {}\nThreadID: {}".format(debug_event.dwDebugEventCode,
                                                                                   debug_event.dwProcessId,
                                                                                   debug_event.dwThreadId)
+                
+                self.dump_thread_contexts()
 
                 input = raw_input("Detach? [y to detach] : ")
                 if input == "y":
                     self.debugger_active = False
                 # BOOL WINAPI ContinueDebugEvent( dwProcessId, dwThreadId, dwContinueStatus)
+                
                 kernel32.ContinueDebugEvent(debug_event.dwProcessId, debug_event.dwThreadId, continue_status)
                 
     def detach(self):
@@ -180,6 +183,7 @@ class Debugger():
             
     def run(self):
         # Poll the debugee for debugging events
+        raw_input("Press enter to begin waiting for debug events...")
         
         while self.debugger_active == True:
             self.get_debug_event()
@@ -188,26 +192,12 @@ class Debugger():
     def get_last_error(self):
         return kernel32.GetLastError()
 
-
     def dump_thread_contexts(self):        
-        threads = debugger.enumerate_threads(self.pid)
+        threads = self.enumerate_threads(self.pid)
 
         for thread in threads:
-            thread_ctx = debugger.get_thread_context(thread)
+            thread_ctx = self.get_thread_context(thread)
 
             print "ThreadID: {}".format(thread)
             print "Instruction pointer RIP: {:016X}".format(thread_ctx.Rip)
             
-
-if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        path_to_exe = sys.argv[1]
-        debugger = Debugger()
-        pid = debugger.load(path_to_exe)
-
-        debugger.dump_thread_contexts()
-
-        #debugger.run()
-        
-        debugger.detach()
-        
