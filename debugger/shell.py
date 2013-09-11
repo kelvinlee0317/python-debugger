@@ -20,30 +20,30 @@ class Shell():
             f = None
             if command:
                 try:
-                    f = getattr(self, command[0])
+                    f = getattr(self, 'cmd_' + command[0])
                 except:
                     pass
                 
             if f:
-                if f(command):
+                if f(input.split()):
                     return
                 
             else:
                 sys.stderr.write('Bad command. Try q to detach and quit, or n to continue\n')
             
             
-    def q(self, command):
+    def cmd_q(self, command):
         """Quit"""
         print "[*] Detaching"
         self.debugger.debugger_active = False
         
         return True
     
-    def n(self, command):
+    def cmd_n(self, command):
         """Next - Continue execution"""
         return True
     
-    def d(self, command):
+    def cmd_d(self, command):
         try:
             l = Decode(self.debug_event.u.Exception.ExceptionRecord.ExceptionAddress, 
                        self.debugger.read_process_memory(self.debugger.h_process, self.debug_event.u.Exception.ExceptionRecord.ExceptionAddress, 32),
@@ -52,3 +52,15 @@ class Shell():
                 print "0x%08x (%02x) %-20s %s" % (i[0],  i[1],  i[3],  i[2])
         except Exception as e:
             sys.stderr.write('A problem occured in disassembling nearby memory {}\n Do you have distorm3 installed?\n'.format(e))
+            
+    def cmd_b(self, command):
+        """ Set a soft breakpoint at the specified memory address"""
+        try:
+            print command
+            address = int(command[1], 16)
+            
+            self.debugger.breakpoint_set(self.debugger.h_process, address)
+            
+        except Exception as e:
+            sys.stderr.write('Failed to set breakpoint at specified address: {}\n'.format(e))
+            

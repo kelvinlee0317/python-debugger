@@ -178,7 +178,7 @@ class Debugger():
             return data
         
     def write_process_memory(self, h_process, address, data):
-        count = c_ulong(0)
+        count_write = c_ulong(0)
         
         c_data = c_char_p(data)
         
@@ -197,13 +197,13 @@ class Debugger():
                 original = self.read_process_memory(h_process, address, 1)
                 
                 # write the opcode for INT3, the breakpoint interrupt instruction
-                self.write_process_memory(address, '\xCC')
+                self.write_process_memory(h_process, address, '\xCC')
                 
                 # put the breakpoint into our dict
                 self.breakpoints[address] = original
                 
-            except:
-                sys.stderr.write('Something went wrong setting a software breakpoint at address {}\n'.format(address))
+            except Exception as e:
+                sys.stderr.write('Something went wrong setting a software breakpoint at address {}: {}\n'.format(address, e))
                 
                 return False
         return True
@@ -216,7 +216,7 @@ class Debugger():
         
         return address
     
-    def exception_handler_breakpoint(self, exception_address):
+    def exception_handler_breakpoint(self, exception_address, thread_id):
         print "[*] Exception address: 0x%08x" % exception_address
         # check if the breakpoint is one that we set
         if not self.breakpoints.has_key(exception_address):
@@ -231,15 +231,15 @@ class Debugger():
             print "[*] Hit user defined breakpoint."
             # this is where we handle the breakpoints we set 
             # first put the original byte back
-            self.write_process_memory(exception_address, self.breakpoints[exception_address])
+            self.write_process_memory(self.h_process, exception_address, self.breakpoints[exception_address])
 
             # obtain a fresh context record, reset EIP back to the 
             # original byte and then set the thread's context record
             # with the new EIP value
-            self.context = self.get_thread_context(h_thread=self.h_thread)
-            self.context.Eip -= 1
+            context = self.get_thread_context(thread_id=thread_id)
+            context.Rip -= 1
             
-            kernel32.SetThreadContext(self.h_thread, byref(self.context))
+            kernel32.SetThreadContext(self.open_thread(thread_id), byref(context))
             
         return DBG_CONTINUE
             
@@ -269,7 +269,7 @@ class Debugger():
                     exception_address = debug_event.u.Exception.ExceptionRecord.ExceptionAddress
                     exception_code = debug_event.u.Exception.ExceptionRecord.ExceptionCode
 
-                    continue_status = self.exception_handler_breakpoint(exception_address)
+                    continue_status = self.exception_handler_breakpoint(exception_address, debug_event.dwThreadId)
                     
                     if self.bp_callback:
                         self.bp_callback(debug_event)
