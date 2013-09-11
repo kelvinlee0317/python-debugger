@@ -12,9 +12,10 @@ From an _Administrator_ shell, try
 Please install distorm3 to use disassembly
 
 Valid commands in debug shell:
-q -- quit
-n -- continue
-d -- show disassembly at current instruction
-s -- single-step
+`q` -- quit
+`n` -- continue
+`d` -- show disassembly at current instruction
+`b <memory address in hex>` -- set a soft breakpoint at specified memory address
+`s` -- single-step
 
 
