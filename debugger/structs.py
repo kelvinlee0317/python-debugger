@@ -3,15 +3,15 @@ from ctypes import *
 # Let's map the Microsoft types to ctypes for clarity
 BYTE      = c_ubyte
 WORD      = c_ushort
-DWORD     = c_ulong
-DWORD64   = c_longlong
+DWORD     = c_uint32
+DWORD64   = c_uint64
 LPBYTE    = POINTER(c_ubyte)
 LPTSTR    = POINTER(c_char) 
 HANDLE    = c_void_p
 PVOID     = c_void_p
 LPVOID    = c_void_p
-UINT_PTR  = c_ulong
-SIZE_T    = c_ulong
+ULONG_PTR  = POINTER(c_uint32)
+SIZE_T    = c_uint32
 
 # Constants
 DEBUG_PROCESS         = 0x00000001
@@ -148,25 +148,15 @@ class PROCESS_INFORMATION(Structure):
 # When the dwDebugEventCode is evaluated
 class EXCEPTION_RECORD(Structure):
     pass
-    
-EXCEPTION_RECORD._fields_ = [
-        ("ExceptionCode",        DWORD),
-        ("ExceptionFlags",       DWORD),
-        ("ExceptionRecord",      POINTER(EXCEPTION_RECORD)),
-        ("ExceptionAddress",     PVOID),
-        ("NumberParameters",     DWORD),
-        ("ExceptionInformation", UINT_PTR * 15),
-        ]
 
-class _EXCEPTION_RECORD(Structure):
-    _fields_ = [
-        ("ExceptionCode",        DWORD),
-        ("ExceptionFlags",       DWORD),
-        ("ExceptionRecord",      POINTER(EXCEPTION_RECORD)),
-        ("ExceptionAddress",     PVOID),
-        ("NumberParameters",     DWORD),
-        ("ExceptionInformation", UINT_PTR * 15),
-        ]
+EXCEPTION_RECORD._fields_ = [
+    ("ExceptionCode",        DWORD),
+    ("ExceptionFlags",       DWORD),
+    ("ExceptionRecord",      POINTER(EXCEPTION_RECORD)),
+    ("ExceptionAddress",     PVOID),
+    ("NumberParameters",     DWORD),
+    ("ExceptionInformation", ULONG_PTR * 15),
+    ]
 
 # Exceptions
 class EXCEPTION_DEBUG_INFO(Structure):
@@ -179,6 +169,7 @@ class EXCEPTION_DEBUG_INFO(Structure):
 class DEBUG_EVENT_UNION(Union):
     _fields_ = [
         ("Exception",         EXCEPTION_DEBUG_INFO),
+# Don't care about these for now, define later
 #        ("CreateThread",      CREATE_THREAD_DEBUG_INFO),
 #        ("CreateProcessInfo", CREATE_PROCESS_DEBUG_INFO),
 #        ("ExitThread",        EXIT_THREAD_DEBUG_INFO),
@@ -188,6 +179,20 @@ class DEBUG_EVENT_UNION(Union):
 #        ("DebugString",       OUTPUT_DEBUG_STRING_INFO),
 #        ("RipInfo",           RIP_INFO),
         ]   
+    
+    
+DEBUG_EVENT_CODE_NAMES = [
+    'Undefined',
+    'EXCEPTION_DEBUG_EVENT',
+    'CREATE_THREAD_DEBUG_EVENT',
+    'EXCEPTION_DEBUG_EVENT',
+    'EXIT_PROCESS_DEBUG_EVENT',
+    'EXIT_THREAD_DEBUG_EVENT',
+    'LOAD_DLL_DEBUG_EVENT',
+    'UNLOAD_DLL_DEBUG_EVENT',
+    'OUTPUT_DEBUG_STRING_EVENT',
+    'RIP_EVENT',
+]
 
 # DEBUG_EVENT describes a debugging event
 # that the debugger has trapped

@@ -158,17 +158,24 @@ class Debugger():
         
         if kernel32.WaitForDebugEvent(byref(debug_event), INFINITE):
                 # TODO: Event handlers
-                print "Debug event code: {}\nProcessID: {}\nThreadID: {}".format(debug_event.dwDebugEventCode,
+                print "Debug event code: {}, Event type: {}\nProcessID: {}\nThreadID: {}".format(debug_event.dwDebugEventCode,
+                                                                                  DEBUG_EVENT_CODE_NAMES[debug_event.dwDebugEventCode],
                                                                                   debug_event.dwProcessId,
                                                                                   debug_event.dwThreadId)
                 
-                self.dump_thread_contexts()
+                debug_thread_context = self.get_thread_context(debug_event.dwThreadId)
+                
+                
+                #self.dump_thread_contexts()
+                
+                if DEBUG_EVENT_CODE_NAMES[debug_event.dwDebugEventCode] == 'EXCEPTION_DEBUG_EVENT':
+                    print 'Exception Code: ', hex(debug_event.u.Exception.ExceptionRecord.ExceptionCode)
 
                 input = raw_input("Detach? [y to detach] : ")
                 if input == "y":
                     self.debugger_active = False
                 # BOOL WINAPI ContinueDebugEvent( dwProcessId, dwThreadId, dwContinueStatus)
-                
+                print "Continuing", debug_event.dwProcessId, debug_event.dwThreadId             
                 kernel32.ContinueDebugEvent(debug_event.dwProcessId, debug_event.dwThreadId, continue_status)
                 
     def detach(self):
