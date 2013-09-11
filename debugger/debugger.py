@@ -12,10 +12,20 @@ kernel32 = windll.kernel32
 
 class Debugger():
     def __init__(self):
-        self.h_process          = None;
-        self.pid                = None;
-        self.debugger_active    = False;
+        self.h_process          = None
+        self.pid                = None
+        self.debugger_active    = False
+        self.first_breakpoint   = True
+        self.breakpoints        = {}
+        self.event_callback     = None
+        self.bp_callback        = None    
         
+    def set_event_callback(self, callback):
+        """ Set method to be called upon all debugging events """
+        self.event_callback = callback
+        
+    def set_bp_callback(self, callback):
+        self.bp_callback = callback
         
     
     def load(self, path_to_exe):
@@ -57,7 +67,7 @@ class Debugger():
             
             
         else:
-            print   "[*] Error: 0x%08x." % kernel32.GetLastError()
+            sys.stderr.write('[*] Error: 0x%08x. \n' % kernel32.GetLastError())
             
     def open_process(self, pid):
         # HANDLE WINAPI OpenProcess( dwDesiredAccess, bInheritHandle, dwProcessId)
@@ -109,13 +119,15 @@ class Debugger():
             print "Found {} threads".format(len(thread_list))
             return thread_list
         
-    def get_thread_context(self, thread_id):
+    def get_thread_context(self, thread_id=None, h_thread=None):
         """ Get the thread context struct for a given thread id"""
         context = CONTEXT_AMD64()
         context.ContextFlags = CONTEXT_AMD_64 | CONTEXT_FULL_64 | CONTEXT_DEBUG_REGISTERS | CONTEXT_SEGMENTS
         
         # Obtain a handle to the thread
-        h_thread = self.open_thread(thread_id)
+        if not h_thread:
+            h_thread = self.open_thread(thread_id)
+            
         if kernel32.GetThreadContext(h_thread, byref(context)):
             kernel32.CloseHandle(h_thread)
             return context
@@ -141,11 +153,91 @@ class Debugger():
                 return pid
                 
         else:
-            print "[*] Unable to attach to the process to debug.\n kernel32.DebugActiveProcess:: Return code {}.".format(success)\
+            sys.stderr.write("[*] Unable to attach to the process to debug.\n kernel32.DebugActiveProcess:: Return code {}.".format(success)\
                        + " Error Code {}.\n".format(self.get_last_error()) \
-                       + " Are you trying to debug a 64-bit process with 32-bit Python?"
+                       + " Are you trying to debug a 64-bit process with 32-bit Python?")
 
             return None
+        
+    def read_process_memory(self, h_process, address, length):  
+        data = ''
+        read_buffer = create_string_buffer(length)
+        # Bytes read
+        count_read = c_ulong(0)
+        
+        if not kernel32.ReadProcessMemory(h_process, address, read_buf, length, byref(count_read)):
+            sys.stderr.write('Failed to read {} bytes of memory at address {}\n'.format(length, address))
+            return None
+        
+        else:
+            data += read_buf.raw()
+            return data
+        
+    def write_process_memory(self, h_process, address, data):
+        count = c_ulong(0)
+        
+        c_data = c_char_p(data)
+        
+        if not kernel32.WriteProcessMemory(h_process, address, c_data, len(data), byref(count_write)):
+            sys.stderr.write('Failed to write {} bytes of memory at address {}\n'.format(len(data), address))
+            return False
+        
+        else:
+            return True
+        
+        
+    def breakpoint_set(self, h_process, address):
+        if not address in self.breakpoints:
+            try:
+                #store the original byte
+                original = self.read_process_memory(h_process, address, 1)
+                
+                # write the opcode for INT3, the breakpoint interrupt instruction
+                self.write_process_memory(address, '\xCC')
+                
+                # put the breakpoint into our dict
+                self.breakpoints[address] = original
+                
+            except:
+                sys.stderr.write('Something went wrong setting a software breakpoint at address {}\n'.format(address))
+                
+                return False
+        return True
+        
+    def func_resolve(self, dll, function):
+        handle = kernel32.GetModuleHandleA(dll)
+        address = kernel32.GetProcAddress(handle, function)
+        
+        kernel32.CloseHandle(handle)
+        
+        return address
+    
+    def exception_handler_breakpoint(self, exception_address):
+        print "[*] Exception address: 0x%08x" % exception_address
+        # check if the breakpoint is one that we set
+        if not self.breakpoints.has_key(exception_address):
+           
+                # if it is the first Windows driven breakpoint
+                # then let's just continue on
+                if self.first_breakpoint == True:
+                   self.first_breakpoint = False
+                   print "[*] Hit the first breakpoint."
+               
+        else:
+            print "[*] Hit user defined breakpoint."
+            # this is where we handle the breakpoints we set 
+            # first put the original byte back
+            self.write_process_memory(exception_address, self.breakpoints[exception_address])
+
+            # obtain a fresh context record, reset EIP back to the 
+            # original byte and then set the thread's context record
+            # with the new EIP value
+            self.context = self.get_thread_context(h_thread=self.h_thread)
+            self.context.Eip -= 1
+            
+            kernel32.SetThreadContext(self.h_thread,byref(self.context))
+            
+        return DBG_CONTINUE
             
     def get_debug_event(self):
         """ Loop, waiting for debugging events.
@@ -163,17 +255,24 @@ class Debugger():
                                                                                   debug_event.dwProcessId,
                                                                                   debug_event.dwThreadId)
                 
-                debug_thread_context = self.get_thread_context(debug_event.dwThreadId)
+                debug_thread_context = self.get_thread_context(thread_id = debug_event.dwThreadId)
                 
                 
                 #self.dump_thread_contexts()
                 
                 if DEBUG_EVENT_CODE_NAMES[debug_event.dwDebugEventCode] == 'EXCEPTION_DEBUG_EVENT':
                     print 'Exception Code: ', hex(debug_event.u.Exception.ExceptionRecord.ExceptionCode)
+                    exception_address = debug_event.u.Exception.ExceptionRecord.ExceptionAddress
+                    exception_code = debug_event.u.Exception.ExceptionRecord.ExceptionCode
 
-                input = raw_input("Detach? [y to detach] : ")
-                if input == "y":
-                    self.debugger_active = False
+                    continue_status = self.exception_handler_breakpoint(exception_address)
+                    
+                    if self.bp_callback:
+                        self.bp_callback()
+
+                if self.event_callback:
+                    self.event_callback()
+                
                 # BOOL WINAPI ContinueDebugEvent( dwProcessId, dwThreadId, dwContinueStatus)
                 print "Continuing", debug_event.dwProcessId, debug_event.dwThreadId             
                 kernel32.ContinueDebugEvent(debug_event.dwProcessId, debug_event.dwThreadId, continue_status)
@@ -185,7 +284,7 @@ class Debugger():
             return True
         
         else:
-            print "Error: Failed to detach from process"
+            sys.stderr.write("Error: Failed to detach from process\n")
             return True
             
     def run(self):
@@ -203,7 +302,7 @@ class Debugger():
         threads = self.enumerate_threads(self.pid)
 
         for thread in threads:
-            thread_ctx = self.get_thread_context(thread)
+            thread_ctx = self.get_thread_context(thread_id = thread)
 
             print "ThreadID: {}".format(thread)
             print "Instruction pointer RIP: {:016X}".format(thread_ctx.Rip)

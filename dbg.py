@@ -1,4 +1,5 @@
 from debugger.debugger import Debugger
+from debugger.shell import Shell
 
 import sys
 import argparse
@@ -26,6 +27,8 @@ if not pid and not exe_path:
             print "Invalid integer pid"
  
 dbgr = Debugger()
+shell = Shell(dbgr)
+dbgr.set_bp_callback(shell.prompt)
     
 try:
     if pid:    
