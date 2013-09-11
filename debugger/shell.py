@@ -15,12 +15,13 @@ class Shell():
         
         while True:
             input = raw_input('> ')
+            print input.split()
             command = input.split()[0] if input.split() else None
             
             f = None
             if command:
                 try:
-                    f = getattr(self, 'cmd_' + command[0])
+                    f = getattr(self, 'cmd_' + command)
                 except:
                     pass
                 
@@ -63,4 +64,9 @@ class Shell():
             
         except Exception as e:
             sys.stderr.write('Failed to set breakpoint at specified address: {}\n'.format(e))
+            
+    def cmd_s(self, command):
+        """ Single-step to the next instruction """
+        self.debugger.single_step(self.debug_event.dwThreadId)
+        return True
             

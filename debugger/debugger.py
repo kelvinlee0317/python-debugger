@@ -239,9 +239,21 @@ class Debugger():
             context = self.get_thread_context(thread_id=thread_id)
             context.Rip -= 1
             
-            kernel32.SetThreadContext(self.open_thread(thread_id), byref(context))
+            if not kernel32.SetThreadContext(self.open_thread(thread_id), byref(context)):
+                sys.stderr.write('Error setting EIP, code {}\n'.format(hex(self.get_last_error())))
             
         return DBG_CONTINUE
+    
+    def single_step(self, thread_id):
+        """ Set the processor to interrupt on the next instruction """
+        h_thread = self.open_thread(thread_id)
+
+        context = self.get_thread_context(h_thread=h_thread)
+
+        context.EFlags = context.EFlags | 0x100
+        if not kernel32.SetThreadContext(self.open_thread(thread_id), byref(context)):
+            sys.stderr.write('Error setting flags register, code {}\n'.format(hex(self.get_last_error())))
+        
             
     def get_debug_event(self):
         """ Loop, waiting for debugging events.
@@ -262,6 +274,7 @@ class Debugger():
                 debug_thread_context = self.get_thread_context(thread_id=debug_event.dwThreadId)
                 
                 
+                print "Flags: ", hex(debug_thread_context.EFlags)
                 # self.dump_thread_contexts()
                 
                 if DEBUG_EVENT_CODE_NAMES[debug_event.dwDebugEventCode] == 'EXCEPTION_DEBUG_EVENT':
